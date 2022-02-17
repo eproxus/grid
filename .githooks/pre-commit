@@ -1,0 +1,4 @@
+#!/bin/sh
+
+rebar3 analyze
+rebar3 fmt --check
