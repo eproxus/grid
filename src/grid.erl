@@ -50,17 +50,24 @@ update_columns(Key, Value, Updates, []) ->
 update_columns(Key, Value, Updates, [Column|Columns]) ->
     case Column of
         #{Key := Value} ->
-            [maps:merge_with(
-                fun
-                    (width, W1, W2) -> max(W1, W2);
-                    (_, _, V) -> V
-                end,
-                Column,
-                Updates
-            )|Columns];
+            [update_column(Column, Updates)|Columns];
         Other ->
             [Other|update_columns(Key, Value, Updates, Columns)]
     end.
+
+update_column(Column, Updates) ->
+    Update = fun
+        (width, W1, W2) -> max(W1, W2);
+        (_, _, V) -> V
+    end,
+    % FIXME: When supporting OTP 24+ only, use maps:merge_with/3 instead
+    maps:fold(fun(Key, Value, C) ->
+        case maps:find(Key, C) of
+            {ok, Old} -> C#{Key := Update(Key, Old, Value)};
+            error -> C#{Key => Value}
+        end
+    end, Column, Updates).
+    % maps:merge_with(Update, Column, Updates).
 
 render(Items, Columns, Opts) ->
     lists:map(fun(Item) -> render_row(Item, Columns, Opts) end, Items).
@@ -91,7 +98,7 @@ render_cell_value(Term) when is_binary(Term); is_list(Term) ->
 render_cell_value(Term) when is_integer(Term) ->
     integer_to_binary(Term);
 render_cell_value(Term) when is_atom(Term) ->
-    atom_to_binary(Term).
+    atom_to_binary(Term, utf8).
 
 columns(Columns) -> columns(Columns, 1, []).
 
