@@ -21,7 +21,13 @@ process(Items, Columns) ->
     {Rows, filter_columns(Columns, AllColumns)}.
 
 process([], Columns, Items) ->
-    {lists:reverse(Items), lists:sort(fun(#{index := I1}, #{index := I2}) -> I1 =< I2 end, column_index(Columns))};
+    {
+        lists:reverse(Items),
+        lists:sort(
+            fun(#{index := I1}, #{index := I2}) -> I1 =< I2 end,
+            column_index(Columns)
+        )
+    };
 process([Item | Rest], Columns, Items) ->
     {Formatted, NewColumns} = process_item(Item, Columns),
     process(Rest, NewColumns, [Formatted | Items]).
@@ -39,20 +45,26 @@ process_item_list([Cell | Rest], Pos, {Item, Columns}) ->
     process_item_list(Rest, Pos + 1, {[Rendered | Item], NewColumns}).
 
 process_item_map(Cells, Columns) ->
-    maps:fold(fun(Key, Value, {Acc, Cs}) ->
-        {Rendered, Length} = render_cell(Value),
-        NewColumns = update_columns(key, Key, #{width => Length, key => Key}, Cs),
-        {Acc#{Key := Rendered}, NewColumns}
-    end, {Cells, Columns}, Cells).
+    maps:fold(
+        fun(Key, Value, {Acc, Cs}) ->
+            {Rendered, Length} = render_cell(Value),
+            NewColumns = update_columns(
+                key, Key, #{width => Length, key => Key}, Cs
+            ),
+            {Acc#{Key := Rendered}, NewColumns}
+        end,
+        {Cells, Columns},
+        Cells
+    ).
 
 update_columns(Key, Value, Updates, []) ->
     [maps:put(Key, Value, Updates)];
-update_columns(Key, Value, Updates, [Column|Columns]) ->
+update_columns(Key, Value, Updates, [Column | Columns]) ->
     case Column of
         #{Key := Value} ->
-            [update_column(Column, Updates)|Columns];
+            [update_column(Column, Updates) | Columns];
         Other ->
-            [Other|update_columns(Key, Value, Updates, Columns)]
+            [Other | update_columns(Key, Value, Updates, Columns)]
     end.
 
 update_column(Column, Updates) ->
@@ -61,13 +73,17 @@ update_column(Column, Updates) ->
         (_, _, V) -> V
     end,
     % FIXME: When supporting OTP 24+ only, use maps:merge_with/3 instead
-    maps:fold(fun(Key, Value, C) ->
-        case maps:find(Key, C) of
-            {ok, Old} -> C#{Key := Update(Key, Old, Value)};
-            error -> C#{Key => Value}
-        end
-    end, Column, Updates).
-    % maps:merge_with(Update, Column, Updates).
+    maps:fold(
+        fun(Key, Value, C) ->
+            case maps:find(Key, C) of
+                {ok, Old} -> C#{Key := Update(Key, Old, Value)};
+                error -> C#{Key => Value}
+            end
+        end,
+        Column,
+        Updates
+    ).
+% maps:merge_with(Update, Column, Updates).
 
 render(Items, Columns, Opts) ->
     lists:map(fun(Item) -> render_row(Item, Columns, Opts) end, Items).
@@ -81,13 +97,28 @@ render_row_list([], [], _Opts) ->
     [$\n];
 render_row_list([Cell | Row], [#{width := Width} | Columns], Opts) ->
     Formatted = io_lib:format("~*.. s", [-Width, Cell]),
-    [[Formatted | [spacer(Opts) || Row =/= []]] | render_row_list(Row, Columns, Opts)].
+    [
+        [Formatted | [spacer(Opts) || Row =/= []]]
+        | render_row_list(Row, Columns, Opts)
+    ].
 
 render_row_map(Row, Columns, Opts) when is_map(Row) ->
-    [lists:join(spacer(Opts), lists:foldr(fun(#{key := Key, width := Width}, Acc) ->
-        Formatted = io_lib:format("~*.. s", [-Width, maps:get(Key, Row)]),
-        [Formatted | Acc]
-    end, [], Columns)), $\n].
+    [
+        lists:join(
+            spacer(Opts),
+            lists:foldr(
+                fun(#{key := Key, width := Width}, Acc) ->
+                    Formatted = io_lib:format("~*.. s", [
+                        -Width, maps:get(Key, Row)
+                    ]),
+                    [Formatted | Acc]
+                end,
+                [],
+                Columns
+            )
+        ),
+        $\n
+    ].
 
 render_cell(Term) ->
     Rendered = render_cell_value(Term),
@@ -104,11 +135,11 @@ columns(Columns) -> columns(Columns, 1, []).
 
 columns([], _Pos, Acc) ->
     lists:reverse(Acc);
-columns([Column|Columns], Pos, Acc) ->
-    columns(Columns, Pos + 1, [#{key => Column, index => Pos}|Acc]).
+columns([Column | Columns], Pos, Acc) ->
+    columns(Columns, Pos + 1, [#{key => Column, index => Pos} | Acc]).
 
-column_index([#{index := Index} = Column|Columns]) ->
-    [Column|column_index(Columns, Index)];
+column_index([#{index := Index} = Column | Columns]) ->
+    [Column | column_index(Columns, Index)];
 column_index(Columns) ->
     column_index(Columns, 1).
 
@@ -124,10 +155,8 @@ column_index(Columns, Index) ->
     ),
     Indexed.
 
-filter_columns([], Columns) ->
-    Columns;
-filter_columns(Desired, All) ->
-    lists:sublist(All, length(Desired)).
+filter_columns([], Columns) -> Columns;
+filter_columns(Desired, All) -> lists:sublist(All, length(Desired)).
 
 spacer(#{spacer := Spacer}) -> Spacer;
 spacer(_Opts) -> <<"  ">>.

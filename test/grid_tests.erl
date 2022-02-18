@@ -78,7 +78,6 @@ custom_spacer_test() ->
         #{spacer => $|}
     ).
 
-
 %--- Internal ------------------------------------------------------------------
 
 bintrim(IOList) -> string:trim(iolist_to_binary(IOList)).
