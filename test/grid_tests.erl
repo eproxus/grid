@@ -235,7 +235,7 @@ header_format_only_test_() ->
         Test('FOO_BAR', "foo bar", lowercase),
         Test('FOO_BAR', "RAB_OOF", fun(S) -> string:reverse(S) end),
         Test('FOO_BAR', "RAB_OOF", fun(S) ->
-            {'$cell', string:length(S), string:reverse(S)}
+            grid:cell(string:reverse(S), string:length(S))
         end)
     ]}.
 

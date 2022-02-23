@@ -5,6 +5,8 @@
 -ignore_xref({format, 1}).
 -export([format/2]).
 -ignore_xref({format, 2}).
+-export([cell/2]).
+-ignore_xref({cell, 2}).
 
 %--- Macros --------------------------------------------------------------------
 
@@ -17,6 +19,8 @@ format(Items) -> format(Items, #{}).
 format(Items, Opts) ->
     {Rows, Columns} = process(Items, columns(Opts), opts(Opts)),
     render(Rows, Columns, Opts).
+
+cell(Item, Length) -> ?cell(Item, Length).
 
 %--- Internal ------------------------------------------------------------------
 
