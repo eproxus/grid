@@ -1,5 +1,5 @@
 {application, grid, [
-    {description, "An OTP library"},
+    {description, "Formatter for tabular data"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [
@@ -10,5 +10,8 @@
     {modules, []},
 
     {licenses, ["Apache-2.0"]},
-    {links, []}
+    {links, [
+        {"GitHub", "https://github.com/eproxus/grid"},
+        {"Changelog", "https://github.com/eproxus/grid/blob/main/CHANGELOG.md"}
+    ]}
 ]}.
