@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Columns can be aligned by a column spec, e.g. `#{key => foo, alight => right}`
+- It is now possible to specify the same column multiple times
 
 ## [0.1.0] - 2022-02-28
 

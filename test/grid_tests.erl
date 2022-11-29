@@ -138,6 +138,48 @@ maps_column_same_index_test() ->
         )
     ).
 
+duplicate_column_key_test() ->
+    ?equal(
+        [
+            "1  1  2  2  3",
+            "4  4  5  5  6"
+        ],
+        [
+            #{a => 1, b => 2, c => 3},
+            #{a => 4, b => 5, c => 6}
+        ],
+        #{
+            columns => [
+                #{key => a},
+                #{key => a},
+                #{key => b},
+                #{key => b},
+                #{key => c}
+            ]
+        }
+    ).
+
+duplicate_column_index_test() ->
+    ?equal(
+        [
+            "3  2  1  2  3",
+            "6  5  4  5  6"
+        ],
+        [
+            [1, 2, 3],
+            [4, 5, 6]
+        ],
+        #{
+            columns => [
+                #{index => 3},
+                #{index => 2},
+                #{index => 1},
+                #{index => 2},
+                #{index => 3}
+            ]
+        }
+    ).
+
 custom_spacer_test() ->
     ?equal(
         [
