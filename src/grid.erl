@@ -10,7 +10,7 @@
 
 %--- Macros --------------------------------------------------------------------
 
--define(cell(Item, Length), {'$cell', Length, Item}).
+-define(cell(Item, Length), {'$grid:cell', Length, Item}).
 
 -define(COLUMN_DEFAULT, #{align => left}).
 
