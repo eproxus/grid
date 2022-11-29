@@ -12,6 +12,8 @@
 
 -define(cell(Item, Length), {'$cell', Length, Item}).
 
+-define(COLUMN_DEFAULT, #{align => left}).
+
 %--- API -----------------------------------------------------------------------
 
 format(Items) -> format(Items, #{}).
@@ -36,18 +38,18 @@ columns(Opts) -> columns(maps:get(columns, Opts, []), 1, #{}).
 columns([], Index, Acc) ->
     {Index, Acc};
 columns([Column | Columns], Index, Acc) when is_atom(Column) ->
-    NewAcc = maps:put(Index, #{key => Column, index => Index}, Acc),
+    NewAcc = Acc#{Index => #{key => Column, index => Index}},
     columns(Columns, Index + 1, NewAcc);
 columns([I | Columns], Index, Acc) when is_integer(I) ->
-    NewAcc = maps:put(I, #{index => Index}, Acc),
+    NewAcc = Acc#{I => #{index => Index}},
     columns(Columns, I, NewAcc);
 columns([#{index := I} = Column | Columns], _Index, Acc) ->
     case maps:find(I, Acc) of
         {ok, Existing} -> error({duplicate_index, Column, Existing});
-        error -> columns(Columns, I + 1, maps:put(I, Column, Acc))
+        error -> columns(Columns, I + 1, Acc#{I => column(Column)})
     end;
 columns([Column | Columns], Index, Acc) when is_map(Column) ->
-    columns(Columns, Index + 1, maps:put(Index, Column#{index => Index}, Acc)).
+    columns(Columns, Index + 1, Acc#{Index => column(Column#{index => Index})}).
 
 process(Items, Columns, Opts) ->
     {Rows, AllColumns} = process(Items, Columns, [], Opts),
@@ -127,9 +129,9 @@ update_columns({index, Value}, Attrs, {Index, Columns}) ->
     NewColumns =
         case maps:find(Value, Columns) of
             {ok, Column} ->
-                {Index, maps:put(Value, update_column(Column, Attrs), Columns)};
+                {Index, Columns#{Value => update_column(Column, Attrs)}};
             error ->
-                {Index + 1, maps:put(Index, Attrs#{index => Index}, Columns)}
+                {Index + 1, Columns#{Index => column(Attrs#{index => Index})}}
         end,
     {Value, NewColumns};
 update_columns({Key, Value}, Attrs, {Index, Columns}) ->
@@ -137,12 +139,14 @@ update_columns({Key, Value}, Attrs, {Index, Columns}) ->
     update_columns(Key, Value, Attrs, {Index, Columns}, First).
 
 update_columns(Key, Value, Attrs, {Index, Columns}, none) ->
-    NewColumns = maps:put(Index, Attrs#{Key => Value, index => Index}, Columns),
+    NewColumns = Columns#{
+        Index => column(Attrs#{Key => Value, index => Index})
+    },
     {Index, {Index + 1, NewColumns}};
 update_columns(Key, Value, Attrs, {Index, Columns}, {I, Column, Iter}) ->
     case Column of
         #{Key := Value, index := I} ->
-            {I, {Index, maps:put(I, update_column(Column, Attrs), Columns)}};
+            {I, {Index, Columns#{I => update_column(Column, Attrs)}}};
         _Other ->
             update_columns(Key, Value, Attrs, {Index, Columns}, maps:next(Iter))
     end.
@@ -158,12 +162,14 @@ update_column(Column, Updates) ->
         fun(Key, Value, C) ->
             case maps:find(Key, C) of
                 {ok, Old} -> C#{Key := Update(Key, Old, Value)};
-                error -> C#{Key => Value}
+                error -> maps:merge(?COLUMN_DEFAULT, C#{Key => Value})
             end
         end,
         Column,
         Updates
     ).
+
+column(Attrs) -> maps:merge(?COLUMN_DEFAULT, Attrs).
 
 render(Items, Columns, Opts) ->
     lists:map(fun(Item) -> render_row(Item, Columns, Opts) end, Items).
@@ -171,31 +177,45 @@ render(Items, Columns, Opts) ->
 render_row({}, _Columns, _Opts) ->
     [$\n];
 render_row({Cell}, [Column | _], _Opts) ->
-    [render_cell(Cell, Column, no_padding), $\n];
+    [render_cell(Cell, Column, no_pad), $\n];
 render_row(Row, [Column], _Opts) ->
-    [render_cell(element(1, Row), Column, no_padding), $\n];
+    [render_cell(element(1, Row), Column, no_pad), $\n];
 render_row(Row, [Column | Columns], Opts) ->
-    Rendered = render_cell(element(1, Row), Column, padding),
+    Rendered = render_cell(element(1, Row), Column, right_pad),
     [Rendered, render_cells(Row, 2, Columns, Opts), $\n].
 
 render_cells(_Row, _Index, [], _Opts) ->
     [];
 render_cells(Row, Index, [Column | _], Opts) when Index == tuple_size(Row) ->
-    [spacer(Opts), render_cell(element(Index, Row), Column, no_padding)];
+    [spacer(Opts), render_cell(element(Index, Row), Column, no_pad)];
 render_cells(Row, Index, [Column], Opts) ->
-    [spacer(Opts), render_cell(element(Index, Row), Column, no_padding)];
+    [spacer(Opts), render_cell(element(Index, Row), Column, no_pad)];
 render_cells(Row, Index, [Column | Columns], Opts) ->
-    Rendered = render_cell(element(Index, Row), Column, padding),
+    Rendered = render_cell(element(Index, Row), Column, right_pad),
     [spacer(Opts), Rendered | render_cells(Row, Index + 1, Columns, Opts)].
 
-render_cell('_', _Column, no_padding) ->
+render_cell('_', _Column, no_pad) ->
     [];
-render_cell('_', #{width := CW}, padding) ->
+render_cell('_', #{width := CW}, right_pad) ->
     lists:duplicate(CW, $\s);
-render_cell(?cell(Text, W), #{width := CW}, padding) when W =< CW ->
+render_cell(?cell(Text, Width), #{width := CWidth, align := Align}, Pad) ->
+    render_padding(Text, Width, CWidth, Align, Pad).
+
+render_padding(Text, W, CW, left, right_pad) when W =< CW ->
     [Text, lists:duplicate(CW - W, $\s)];
-render_cell(?cell(Text, _W), _Column, no_padding) ->
-    [Text].
+render_padding(Text, W, CW, right, _) when W =< CW ->
+    [lists:duplicate(CW - W, $\s), Text];
+render_padding(Text, W, CW, center, right_pad) when W =< CW ->
+    Pad = (CW - W),
+    Left = Pad div 2,
+    Right = Pad - Left,
+    [lists:duplicate(Left, $\s), Text, lists:duplicate(Right, $\s)];
+render_padding(Text, W, CW, center, no_pad) ->
+    Pad = (CW - W),
+    Left = Pad div 2,
+    [lists:duplicate(Left, $\s), Text];
+render_padding(Text, _W, _CW, _Align, no_pad) ->
+    Text.
 
 render_cell_value(Term) when is_binary(Term); is_list(Term) ->
     Term;

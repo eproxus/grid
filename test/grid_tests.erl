@@ -203,6 +203,26 @@ column_name_test() ->
         }
     ).
 
+column_align_test() ->
+    ?equal(
+        [
+            "VALUE   TYPE",
+            "    1  foobar",
+            "  baz   295"
+        ],
+        [
+            #{type => foobar, value => 1},
+            [baz, 295]
+        ],
+        #{
+            header => true,
+            columns => [
+                #{key => value, name => "VALUE", align => right},
+                #{key => type, name => "TYPE", align => center}
+            ]
+        }
+    ).
+
 header_format_test() ->
     ?equal(
         [
