@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support mixed column types (index or spec)
 - Column contents can now be formatted
 - A row can be any term, which counts as a single column row with that term
+- Proplists are formatted as maps with proper column keys
 
 ## [0.1.0] - 2022-02-28
 

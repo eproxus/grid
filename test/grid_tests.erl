@@ -71,6 +71,22 @@ map_test() ->
         ]
     ).
 
+proplist_test() ->
+    ?equal(
+        [
+            "1",
+            "2         c          bar",
+            "3                    bar",
+            "{type,4}  {value,c}  bar"
+        ],
+        [
+            [{type, 1}],
+            [{type, 2}, {value, bar}, {extra, "c"}],
+            [{type, 3}, {value, <<"bar">>}],
+            [{type, 4}, {value, c}, bar]
+        ]
+    ).
+
 mixed_rows_test() ->
     ?equal(
         [

@@ -92,10 +92,23 @@ header_label(#{name := Name}) -> Name;
 header_label(#{key := Key}) -> Key;
 header_label(#{index := I}) -> I.
 
-process_row(Row, #{detect := true} = Columns) ->
-    process_row_by_cells(next(iter(Row)), Columns, {});
+process_row(Row, #{dynamic := true} = Columns) ->
+    process_row_by_cells(next(iter(convert_proplist(Row))), {{}, Columns});
 process_row(Row, #{specs := Specs} = Columns) ->
-    process_row_by_columns(Row, maps:next(maps:iterator(Specs)), {{}, Columns}).
+    process_row_by_columns(
+        convert_proplist(Row), maps:next(maps:iterator(Specs)), {{}, Columns}
+    ).
+
+convert_proplist([{_, _}, {_, _} | _] = Proplist) ->
+    try
+        maps:from_list(Proplist)
+    catch
+        error:badarg -> Proplist
+    end;
+convert_proplist([{Key, Value}]) ->
+    #{Key => Value};
+convert_proplist(NotProplist) ->
+    NotProplist.
 
 process_row_by_cells(none, Result) ->
     Result;
