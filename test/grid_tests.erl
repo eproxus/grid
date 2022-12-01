@@ -165,27 +165,30 @@ maps_column_disorder_test() ->
         ],
         #{
             columns => [
-                #{key => a, index => 3},
-                #{key => b, index => 1},
-                #{key => c, index => 2}
+                #{key => b},
+                #{key => c},
+                #{key => a}
             ]
         }
     ).
 
-maps_column_same_index_test() ->
-    ?assertError(
-        {duplicate_index, _, _},
-        grid:format(
-            [
-                #{type => foobar, value => 1},
-                #{type => baz, value => 295}
-            ],
-            #{
-                columns => [
-                    #{key => value, index => 1}, #{key => type, index => 1}
-                ]
-            }
-        )
+tuple_column_disorder_test() ->
+    ?equal(
+        [
+            "1  3  2",
+            "4  6  5"
+        ],
+        [
+            {1, 2, 3},
+            {4, 5, 6}
+        ],
+        #{
+            columns => [
+                #{},
+                #{index => 3},
+                #{index => 2}
+            ]
+        }
     ).
 
 duplicate_column_key_test() ->
