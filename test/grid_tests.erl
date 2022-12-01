@@ -4,11 +4,16 @@
 
 %--- Macros --------------------------------------------------------------------
 
+-define(printResult(Rows, Result), begin
+    __Result = Result,
+    io:format("~s~n---~n~s", [lists:join($\n, Rows), __Result]),
+    __Result
+end).
 -define(equal(Rows, Expr),
-    ?assertEqual(Rows, rows(grid:format(Expr)))
+    ?assertEqual(Rows, rows(?printResult(Rows, grid:format(Expr))))
 ).
 -define(equal(Rows, Expr, Opts),
-    ?assertEqual(Rows, rows(grid:format(Expr, Opts)))
+    ?assertEqual(Rows, rows(?printResult(Rows, grid:format(Expr, Opts))))
 ).
 
 %--- Tests ---------------------------------------------------------------------
