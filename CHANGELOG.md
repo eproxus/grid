@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Columns can be aligned by a column spec, e.g. `#{key => foo, alight => right}`
 - It is now possible to specify the same column multiple times
+- Support mixed column types (index or spec)
+- Column contents can now be formatted
+- A row can be any term, which counts as a single column row with that term
 
 ## [0.1.0] - 2022-02-28
 

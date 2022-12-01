@@ -10,114 +10,168 @@
 
 %--- Macros --------------------------------------------------------------------
 
--define(cell(Item, Length), {'$grid:cell', Length, Item}).
+-define(COLUMN_DEFAULT, #{align => left, format => fun format_default/1}).
 
--define(COLUMN_DEFAULT, #{align => left}).
+%--- Records -------------------------------------------------------------------
+
+-record(cell, {
+    text :: integer() | binary(),
+    width :: non_neg_integer()
+}).
 
 %--- API -----------------------------------------------------------------------
 
 format(Items) -> format(Items, #{}).
 
 format(Items, Opts) ->
-    {Rows, Columns} = process(Items, columns(Opts), opts(Opts)),
-    render(Rows, Columns, Opts).
+    Columns = columns(Opts),
+    {Rows, ProcessedColumns} = process(Items, Columns, opts(Opts)),
+    render(Rows, ProcessedColumns, Opts).
 
-cell(Item, Length) -> ?cell(Item, Length).
+cell(Text, Width) -> #cell{text = Text, width = Width}.
 
 %--- Internal ------------------------------------------------------------------
 
 opts(Opts) -> maps:map(fun opt/2, Opts).
 
-opt(header, true) -> #{format => fun(V) -> V end};
-opt(header, Format) when is_atom(Format) -> #{format => Format};
-opt(columns, []) -> error(empty_columns);
-opt(_K, V) -> V.
+opt(header, true) ->
+    #{format => fun format_default/1};
+opt(header, #{format := Format} = Header) ->
+    Header#{format => format_fun(Format)};
+opt(header, Format) ->
+    #{format => format_fun(Format)};
+opt(columns, []) ->
+    error(empty_columns);
+opt(_K, V) ->
+    V.
 
 columns(#{columns := Columns}) -> columns(Columns, 1, #{});
-columns(_Opts) -> #{total => 1, specs => #{}, detect => true}.
+columns(_Opts) -> #{total => 1, specs => #{}, dynamic => true}.
 
 columns([], Index, Acc) ->
     #{total => Index, specs => Acc};
 columns([Column | Columns], Index, Acc) when is_atom(Column) ->
-    NewAcc = Acc#{Index => #{key => Column, index => Index}},
-    columns(Columns, Index + 1, NewAcc);
+    columns([#{key => Column} | Columns], Index, Acc);
 columns([I | Columns], Index, Acc) when is_integer(I) ->
-    NewAcc = Acc#{I => #{index => Index}},
-    columns(Columns, max(I + 1, Index), NewAcc);
-columns([#{index := I} = Column | Columns], Index, Acc) ->
-    case maps:find(I, Acc) of
-        {ok, Existing} -> error({duplicate_index, Column, Existing});
-        error -> columns(Columns, max(I + 1, Index), Acc#{I => column(Column)})
-    end;
+    columns([#{index => I} | Columns], Index, Acc);
 columns([Column | Columns], Index, Acc) when is_map(Column) ->
-    columns(Columns, Index + 1, Acc#{Index => column(Column#{index => Index})}).
+    NewColumn = column(maps:merge(#{index => Index}, Column)),
+    columns(Columns, Index + 1, Acc#{Index => NewColumn}).
 
-process(Items, Columns, Opts) ->
-    {Rows, AllColumns} = process(Items, Columns, [], Opts),
-    {Rows, filter_columns(Columns, AllColumns)}.
+column(Attrs) ->
+    maps:update_with(
+        format, fun format_fun/1, maps:merge(?COLUMN_DEFAULT, Attrs)
+    ).
 
-process([], Columns, Rows, Opts) ->
-    {Header, NewColumns} = process_headers(Columns, Opts),
-    {Header ++ lists:reverse(Rows), NewColumns};
-process([Item | Rest], Columns, Rows, Opts) ->
-    {Row, NewColumns} = process_row(Item, Columns),
-    process(Rest, NewColumns, [Row | Rows], Opts).
+process(Rows, Columns, Opts) ->
+    {ProcessedRows, NewColumns} = lists:mapfoldl(
+        fun process_row/2, Columns, Rows
+    ),
+    {Header, AllColumns} = process_headers(NewColumns, Opts),
+    {Header ++ ProcessedRows, AllColumns}.
 
 process_headers(#{specs := Specs} = Columns, #{header := Header}) ->
-    Process = fun(_, Column, Acc) -> process_header(Header, Column, Acc) end,
-    Item = lists:reverse(maps:fold(Process, [], Specs)),
-    {Formatted, NewColumns} = process_row(Item, Columns),
-    {[Formatted], NewColumns};
+    {Item, NewColumns} = maps:fold(
+        fun(_, Column, Acc) -> process_header(Header, Column, Acc) end,
+        {{}, Columns},
+        Specs
+    ),
+    {[Item], NewColumns};
 process_headers(Columns, _Opts) ->
     {[], Columns}.
 
-process_header(Header, #{name := Name}, Acc) ->
-    [format_header(Header, render_cell_value(Name)) | Acc];
-process_header(Header, #{key := Key}, Acc) ->
-    [format_header(Header, render_cell_value(Key)) | Acc];
-process_header(Header, #{index := I}, Acc) ->
-    [format_header(Header, render_cell_value(I)) | Acc].
+process_header(#{format := Format}, #{index := Index} = Spec, State) ->
+    NewSpec = Spec#{format := Format},
+    case header_label(NewSpec) of
+        "" -> State;
+        <<>> -> State;
+        Item -> process_column(Item, Index, NewSpec, {index, Index}, State)
+    end.
+
+header_label(#{name := Name}) -> Name;
+header_label(#{key := Key}) -> Key;
+header_label(#{index := I}) -> I.
 
 process_row(Row, #{detect := true} = Columns) ->
     process_row_by_cells(next(iter(Row)), Columns, {});
-process_row(Row, Columns) ->
-    process_row_by_columns(Row, Columns, 1, {}).
+process_row(Row, #{specs := Specs} = Columns) ->
+    process_row_by_columns(Row, maps:next(maps:iterator(Specs)), {{}, Columns}).
 
-process_row_by_cells(none, Columns, Acc) ->
-    {Acc, Columns};
-process_row_by_cells({Item, Pos, Iter}, Columns, Acc) ->
-    Cell = process_cell(Item),
-    {Index, NewColumns} =
-        update_columns(Pos, #{width => cell_length(Cell)}, Columns),
-    NewAcc = set_cell(Acc, Index, Cell),
-    process_row_by_cells(next(Iter), NewColumns, NewAcc).
+process_row_by_cells(none, Result) ->
+    Result;
+process_row_by_cells({Item, Pos, Iter}, {Acc, Columns}) ->
+    {ColumnIndex, Spec, NewColumns} =
+        case find_spec(Pos, maps:get(specs, Columns)) of
+            error ->
+                S = ?COLUMN_DEFAULT,
+                Total = maps:get(total, Columns),
+                {Total, S#{index => Total}, Columns#{total := Total + 1}};
+            #{index := I} = S ->
+                {I, S, Columns}
+        end,
+    process_row_by_cells(
+        next(Iter),
+        process_column(Item, ColumnIndex, Spec, Pos, {Acc, NewColumns})
+    ).
 
-process_row_by_columns(_Row, #{total := Total} = Columns, Index, Acc) when
-    Index >= Total
+process_row_by_columns(_Row, none, Acc) ->
+    Acc;
+process_row_by_columns(Row, {ColumnIndex, Spec, Iter}, State) ->
+    NewState =
+        case get_value(Row, Spec) of
+            {ok, Item} ->
+                process_column(
+                    Item, ColumnIndex, Spec, {index, ColumnIndex}, State
+                );
+            error ->
+                State
+        end,
+    process_row_by_columns(Row, maps:next(Iter), NewState).
+
+process_column(
+    Item,
+    ColumnIndex,
+    #{index := CellIndex} = Spec0,
+    Pos,
+    {Acc, #{specs := Specs} = Columns}
+) ->
+    Cell = process_cell(Item, Spec0),
+    Spec1 =
+        case Pos of
+            {index, _} -> Spec0;
+            {key, Key} -> maps:merge(Spec0, #{key => Key, index => CellIndex})
+        end,
+    Max = fun(Width) -> max(Width, Cell#cell.width) end,
+    Spec2 = maps:update_with(width, Max, Cell#cell.width, Spec1),
+    NewAcc = set_cell(Acc, CellIndex, Cell),
+    {NewAcc, Columns#{specs := Specs#{ColumnIndex => Spec2}}}.
+
+process_cell(#cell{} = Cell, _Spec) ->
+    Cell;
+process_cell(Value, #{format := Format}) ->
+    case Format(Value) of
+        Cell when is_record(Cell, cell) ->
+            Cell;
+        Formatted when is_binary(Formatted); is_list(Formatted) ->
+            #cell{text = Formatted, width = string:length(Formatted)};
+        Else ->
+            error({invalid_format_return, Else})
+    end.
+
+get_value(Item, #{index := Index}) when is_list(Item), length(Item) >= Index ->
+    {ok, lists:nth(Index, Item)};
+get_value(Item, _Spec) when is_list(Item) ->
+    error;
+get_value(Item, #{index := Index}) when
+    is_tuple(Item), tuple_size(Item) >= Index
 ->
-    {Acc, Columns};
-process_row_by_columns(Row, #{specs := Specs} = Columns, Index, Acc) ->
-    Spec = maps:get(Index, Specs),
-    Processed = process_cell(get_cell(Row, Spec)),
-    NewAcc = set_cell(Acc, Index, Processed),
-    {_, NewColumns} =
-        update_columns(
-            {index, maps:get(index, Spec)},
-            #{width => cell_length(Processed)},
-            Columns
-        ),
-    process_row_by_columns(Row, NewColumns, Index + 1, NewAcc).
-
-get_cell(Item, #{index := Index}) when is_list(Item) ->
-    lists:nth(Index, Item);
-get_cell(Item, #{index := Index}) when is_tuple(Item) ->
-    element(Index, Item);
-get_cell(Item, #{key := Key}) when is_map(Item) ->
-    maps:get(Key, Item);
-get_cell(Item, _Column) ->
-    error({unknown_row_type, Item}).
-
-cell_length(?cell(_Text, Length)) -> Length.
+    {ok, element(Index, Item)};
+get_value(Item, #{index := _Index}) when is_tuple(Item) ->
+    error;
+get_value(Item, #{key := Key}) when is_map(Item) ->
+    {ok, maps:get(Key, Item)};
+get_value(Item, #{index := _Index}) when is_map(Item) ->
+    error.
 
 set_cell(Row, Index, Cell) when Index =< tuple_size(Row) ->
     setelement(Index, Row, Cell);
@@ -129,7 +183,7 @@ set_cell(Row, Index, Cell) ->
 iter(Item) when is_list(Item) -> {list, 1, Item};
 iter(Item) when is_tuple(Item) -> {tuple, 1, Item};
 iter(Item) when is_map(Item) -> {map, 1, maps:next(maps:iterator(Item))};
-iter(Item) -> error({unknown_row_type, Item}).
+iter(Item) -> {list, 1, [Item]}.
 
 next({list, _Index, []}) ->
     none;
@@ -144,142 +198,84 @@ next({map, _Index, none}) ->
 next({map, Index, {Key, Value, NewIter}}) ->
     {Value, {key, Key}, {map, Index + 1, NewIter}}.
 
-process_cell(?cell(Term, Length)) ->
-    ?cell(render_cell_value(Term), Length);
-process_cell(Term) ->
-    Rendered = render_cell_value(Term),
-    ?cell(Rendered, string:length(Rendered)).
+find_spec({index, Index}, Specs) ->
+    case maps:find(Index, Specs) of
+        {ok, Spec} -> Spec;
+        error -> error
+    end;
+find_spec({key, Key}, Specs) ->
+    find_spec_by_key(Key, maps:next(maps:iterator(Specs))).
 
-update_columns(
-    {index, Value}, Attrs, #{total := Total, specs := Specs} = Columns
-) ->
-    {NewTotal, NewSpecs} =
-        case maps:find(Value, Specs) of
-            {ok, Column} ->
-                {Total, Specs#{Value => update_column(Column, Attrs)}};
-            error ->
-                {Total + 1, Specs#{Total => column(Attrs#{index => Total})}}
-        end,
-    {Value, Columns#{total := NewTotal, specs := NewSpecs}};
-update_columns({Key, Value}, Attrs, #{specs := Specs} = Columns) ->
-    First = maps:next(maps:iterator(Specs)),
-    update_columns(Key, Value, Attrs, Columns, First).
+find_spec_by_key(Key, {_Index, #{key := Key} = Spec, _Iter}) ->
+    Spec;
+find_spec_by_key(Key, {_Index, _Spec, Iter}) ->
+    find_spec_by_key(Key, maps:next(Iter));
+find_spec_by_key(_Key, none) ->
+    error.
 
-update_columns(
-    Key, Value, Attrs, #{total := Total, specs := Specs} = Columns, none
-) ->
-    NewSpecs = Specs#{Total => column(Attrs#{Key => Value, index => Total})},
-    {Total, Columns#{total := Total + 1, specs := NewSpecs}};
-update_columns(
-    Key, Value, Attrs, #{specs := Specs} = Columns, {I, Column, Iter}
-) ->
-    case Column of
-        #{Key := Value, index := I} ->
-            {I, Columns#{specs := Specs#{I => update_column(Column, Attrs)}}};
-        _Other ->
-            update_columns(Key, Value, Attrs, Columns, maps:next(Iter))
+render(Rows, #{specs := Specs}, Opts) ->
+    Sorted = [Spec || {_, Spec} <- lists:sort(maps:to_list(Specs))],
+    render_rows(Rows, Sorted, Opts).
+
+render_rows([Row], Specs, Opts) ->
+    [render_row(Row, Specs, Opts), $\n];
+render_rows([Row | Rows], Specs, Opts) ->
+    [render_row(Row, Specs, Opts), $\n | render_rows(Rows, Specs, Opts)];
+render_rows([], _Columns, _Opts) ->
+    [$\n].
+
+render_row(Row, Specs, Opts) -> render_row(Row, Specs, [], Opts).
+
+render_row(_Row, [], _Pad, _Opts) ->
+    [];
+render_row(Row, [#{width := CWidth} = Spec | Specs], Pad, Opts) ->
+    case get_cell(Row, Spec) of
+        error ->
+            render_row(Row, Specs, [padding(CWidth), spacer(Opts) | Pad], Opts);
+        {ok, '_'} ->
+            render_row(Row, Specs, [padding(CWidth), spacer(Opts) | Pad], Opts);
+        {ok, Cell} ->
+            {Text, Post} = align(Cell, Spec),
+            [Pad, Text, render_row(Row, Specs, [Post, spacer(Opts)], Opts)]
     end.
 
-update_column(Column, Updates) ->
-    Update = fun
-        (width, W1, W2) -> max(W1, W2);
-        (_, _, V) -> V
-    end,
-    % FIXME: When supporting OTP 24+ only, use maps:merge_with/3 instead
-    % maps:merge_with(Update, Column, Updates).
-    maps:fold(
-        fun(Key, Value, C) ->
-            case maps:find(Key, C) of
-                {ok, Old} -> C#{Key := Update(Key, Old, Value)};
-                error -> maps:merge(?COLUMN_DEFAULT, C#{Key => Value})
-            end
-        end,
-        Column,
-        Updates
-    ).
+get_cell(Row, #{index := Index}) ->
+    try
+        {ok, element(Index, Row)}
+    catch
+        error:badarg -> error
+    end.
 
-column(Attrs) -> maps:merge(?COLUMN_DEFAULT, Attrs).
+padding(Width) -> lists:duplicate(Width, $\s).
 
-render(Items, #{specs := Specs}, Opts) ->
-    IndexCompare = fun(#{index := I1}, #{index := I2}) -> I1 =< I2 end,
-    Sorted = lists:sort(IndexCompare, maps:values(Specs)),
-    lists:map(fun(Item) -> render_row(Item, Sorted, Opts) end, Items).
-
-render_row({}, _Columns, _Opts) ->
-    [$\n];
-render_row({Cell}, [Column | _], _Opts) ->
-    [render_cell(Cell, Column, no_pad), $\n];
-render_row(Row, [Column], _Opts) ->
-    [render_cell(element(1, Row), Column, no_pad), $\n];
-render_row(Row, [Column | Columns], Opts) ->
-    Rendered = render_cell(element(1, Row), Column, right_pad),
-    [Rendered, render_cells(Row, 2, Columns, Opts), $\n].
-
-render_cells(_Row, _Index, [], _Opts) ->
-    [];
-render_cells(Row, Index, [Column | _], Opts) when Index == tuple_size(Row) ->
-    [spacer(Opts), render_cell(element(Index, Row), Column, no_pad)];
-render_cells(Row, Index, [Column], Opts) ->
-    [spacer(Opts), render_cell(element(Index, Row), Column, no_pad)];
-render_cells(Row, Index, [Column | Columns], Opts) ->
-    Rendered = render_cell(element(Index, Row), Column, right_pad),
-    [spacer(Opts), Rendered | render_cells(Row, Index + 1, Columns, Opts)].
-
-render_cell('_', _Column, no_pad) ->
-    [];
-render_cell('_', #{width := CW}, right_pad) ->
-    lists:duplicate(CW, $\s);
-render_cell(?cell(Text, Width), #{width := CWidth, align := Align}, Pad) ->
-    render_padding(Text, Width, CWidth, Align, Pad).
-
-render_padding(Text, W, CW, left, right_pad) when W =< CW ->
-    [Text, lists:duplicate(CW - W, $\s)];
-render_padding(Text, W, CW, right, _) when W =< CW ->
-    [lists:duplicate(CW - W, $\s), Text];
-render_padding(Text, W, CW, center, right_pad) when W =< CW ->
-    Pad = (CW - W),
+align(#cell{text = Text, width = Width}, #{width := CWidth, align := left}) ->
+    {Text, padding(CWidth - Width)};
+align(#cell{text = Text, width = Width}, #{width := CWidth, align := right}) ->
+    {[padding(CWidth - Width), Text], []};
+align(#cell{text = Text, width = Width}, #{width := CWidth, align := center}) ->
+    Pad = CWidth - Width,
     Left = Pad div 2,
-    Right = Pad - Left,
-    [lists:duplicate(Left, $\s), Text, lists:duplicate(Right, $\s)];
-render_padding(Text, W, CW, center, no_pad) ->
-    Pad = (CW - W),
-    Left = Pad div 2,
-    [lists:duplicate(Left, $\s), Text];
-render_padding(Text, _W, _CW, _Align, no_pad) ->
-    Text.
+    {[padding(Left), Text], padding(Pad - Left)}.
 
-render_cell_value(Term) when is_binary(Term); is_list(Term) ->
+format_default(Term) when is_binary(Term); is_list(Term) ->
     Term;
-render_cell_value(Term) when is_integer(Term) ->
-    integer_to_binary(Term);
-render_cell_value(Term) when is_atom(Term) ->
+format_default(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
-render_cell_value(Term) ->
-    error({invalid_cell, Term}).
-
-filter_columns(#{detect := true}, Columns) ->
-    Columns;
-filter_columns(#{specs := Specs}, Columns) when map_size(Specs) == 0 ->
-    Columns;
-filter_columns(#{specs := Desired} = Columns, #{specs := Detected}) ->
-    Specs = maps:map(
-        fun(Index, Spec) ->
-            maps:merge(Spec, maps:get(Index, Detected))
-        end,
-        Desired
-    ),
-    Columns#{specs := Specs}.
+format_default(Term) ->
+    io_lib:format("~p", [Term]).
 
 spacer(#{spacer := Spacer}) -> Spacer;
 spacer(_Opts) -> <<"  ">>.
 
-format_header(#{format := Format}, Header) ->
-    format_text(Format, Header).
-
-format_text(uppercase, Binary) -> string:uppercase(words(Binary));
-format_text(titlecase, Binary) -> string:titlecase(words(Binary));
-format_text(lowercase, Binary) -> string:lowercase(words(Binary));
-format_text(Fun, Binary) when is_function(Fun, 1) -> Fun(Binary);
-format_text(Format, _Binary) -> error({invalid_format, Format}).
+format_fun(uppercase) ->
+    fun(Value) -> string:uppercase(words(format_default(Value))) end;
+format_fun(titlecase) ->
+    fun(Value) -> string:titlecase(words(format_default(Value))) end;
+format_fun(lowercase) ->
+    fun(Value) -> string:lowercase(words(format_default(Value))) end;
+format_fun(Fun) when is_function(Fun, 1) ->
+    Fun;
+format_fun(Format) ->
+    error({invalid_format, Format}).
 
 words(Binary) -> string:replace(Binary, <<"_">>, <<" ">>, all).

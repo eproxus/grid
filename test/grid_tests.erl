@@ -5,15 +5,29 @@
 %--- Macros --------------------------------------------------------------------
 
 -define(equal(Rows, Expr),
-    ?assertEqual(rows(Rows), bintrim(grid:format(Expr)))
+    ?assertEqual(Rows, rows(grid:format(Expr)))
 ).
 -define(equal(Rows, Expr, Opts),
-    ?assertEqual(rows(Rows), bintrim(grid:format(Expr, Opts)))
+    ?assertEqual(Rows, rows(grid:format(Expr, Opts)))
 ).
 
 %--- Tests ---------------------------------------------------------------------
 
 empty_test() -> ?equal("", []).
+
+implicit_row_test_() ->
+    Test = fun(Term) -> fun() -> ?equal([to_list(Term)], [Term]) end end,
+    {inparallel, [
+        Test(Term)
+     || Term <- [
+            foobar,
+            1,
+            3.14,
+            <<"foobar">>,
+            self(),
+            make_ref()
+        ]
+    ]}.
 
 list_test() ->
     ?equal(
@@ -43,7 +57,7 @@ tuple_test() ->
         ]
     ).
 
-maps_test() ->
+map_test() ->
     ?equal(
         [
             "1",
@@ -75,6 +89,21 @@ empty_columns_test() ->
     ?assertError(
         empty_columns,
         grid:format([[a], [b]], #{columns => []})
+    ).
+
+mixed_columns_test() ->
+    ?equal(
+        [
+            "   1",
+            "2  foo   c",
+            "3  quux"
+        ],
+        [
+            #{type => 1},
+            [2, foo, "c"],
+            {3, <<"quux">>}
+        ],
+        #{columns => [1, #{key => type}, #{index => 3}]}
     ).
 
 maps_column_test() ->
@@ -228,8 +257,8 @@ column_header_test() ->
 column_name_test() ->
     ?equal(
         [
-            "VALUE  TYPE",
-            "1      foobar",
+            "VALUE          TYPE COLUMN",
+            "1      foobar  foobar       foobar",
             "baz    295"
         ],
         [
@@ -240,7 +269,9 @@ column_name_test() ->
             header => true,
             columns => [
                 #{key => value, name => "VALUE"},
-                #{key => type, name => "TYPE"}
+                #{key => type, name => <<>>},
+                #{key => type, name => "TYPE COLUMN"},
+                #{key => type, name => ""}
             ]
         }
     ).
@@ -248,19 +279,44 @@ column_name_test() ->
 column_align_test() ->
     ?equal(
         [
-            "VALUE   TYPE",
-            "    1  foobar",
-            "  baz   295"
+            "VALUE   TYPE      TAG",
+            "    1  foobar  #big-item",
+            "  baz   295      #item"
+        ],
+        [
+            #{type => foobar, value => 1, tag => "#big-item"},
+            [baz, 295, "#item"]
+        ],
+        #{
+            header => true,
+            columns => [
+                #{key => value, name => "VALUE", align => right},
+                #{key => type, name => "TYPE", align => center},
+                #{index => 3, key => tag, name => "TAG", align => center}
+            ]
+        }
+    ).
+
+column_format_test() ->
+    Format = fun(Call) ->
+        fun
+            (Term) when is_atom(Term) -> Call(atom_to_binary(Term));
+            (Term) when is_integer(Term) -> Call(integer_to_binary(Term))
+        end
+    end,
+    ?equal(
+        [
+            "1    raboof",
+            "BAZ  592"
         ],
         [
             #{type => foobar, value => 1},
             [baz, 295]
         ],
         #{
-            header => true,
             columns => [
-                #{key => value, name => "VALUE", align => right},
-                #{key => type, name => "TYPE", align => center}
+                #{key => value, format => uppercase},
+                #{key => type, format => Format(fun string:reverse/1)}
             ]
         }
     ).
@@ -295,14 +351,37 @@ header_format_only_test_() ->
         Test(foo_bar, "FOO BAR", uppercase),
         Test(foo_bar, "Foo bar", titlecase),
         Test('FOO_BAR', "foo bar", lowercase),
-        Test('FOO_BAR', "RAB_OOF", fun(S) -> string:reverse(S) end),
-        Test('FOO_BAR', "RAB_OOF", fun(S) ->
-            grid:cell(string:reverse(S), string:length(S))
+        Test('FOO_BAR', "RAB_OOF", fun(Value) ->
+            string:reverse(atom_to_binary(Value))
+        end),
+        Test('FOO_BAR', "RAB_OOF", fun(Value) ->
+            Formatted = string:reverse(atom_to_binary(Value)),
+            grid:cell(Formatted, string:length(Formatted))
         end)
     ]}.
 
+invalid_format_test() ->
+    ?assertError(
+        {invalid_format, foobar},
+        grid:format([1], #{header => foobar})
+    ),
+    ?assertError(
+        {invalid_format, foobar},
+        grid:format([1], #{columns => [#{format => foobar}]})
+    ).
+
+invalid_formatter_test() ->
+    ?assertError(
+        {invalid_format_return, foobar},
+        grid:format(
+            [[foobar]],
+            #{columns => [#{format => fun(Value) -> Value end}]}
+        )
+    ).
+
 %--- Internal ------------------------------------------------------------------
 
-bintrim(IOList) -> string:trim(iolist_to_binary(IOList)).
+rows(IOList) -> string:lexemes(binary_to_list(iolist_to_binary(IOList)), [$\n]).
 
-rows(Rows) -> bintrim([[R, $\n] || R <- Rows]).
+to_list(Term) when is_binary(Term) -> binary_to_list(Term);
+to_list(Term) -> lists:flatten(io_lib:format("~p", [Term])).
