@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-01-01
+
 ### Added
 
 - Columns can be aligned by a column spec, e.g. `#{key => foo, alight => right}`
@@ -20,5 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial version.
 
-[unreleased]: https://github.com/eproxus/grid/compare/0.1.0...HEAD
-[0.1.0]: https://github.com/eproxus/grid/releases/tag/0.1.0
+[unreleased]: https://github.com/eproxus/grid/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/eproxus/grid/releases/tag/v0.1.0..v0.2.0
+[0.1.0]: https://github.com/eproxus/grid/releases/tag/v0.1.0
