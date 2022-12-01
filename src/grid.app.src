@@ -1,6 +1,6 @@
 {application, grid, [
     {description, "Formatter for tabular data"},
-    {vsn, "0.1.0"},
+    {vsn, semver},
     {registered, []},
     {applications, [
         kernel,
