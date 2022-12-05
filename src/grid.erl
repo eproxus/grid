@@ -259,8 +259,6 @@ get_cell(Row, #{index := Index}) ->
         error:badarg -> error
     end.
 
-padding(Width) -> lists:duplicate(Width, $\s).
-
 align(#cell{text = Text, width = Width}, #{width := CWidth, align := left}) ->
     {Text, padding(CWidth - Width)};
 align(#cell{text = Text, width = Width}, #{width := CWidth, align := right}) ->
@@ -270,8 +268,15 @@ align(#cell{text = Text, width = Width}, #{width := CWidth, align := center}) ->
     Left = Pad div 2,
     {[padding(Left), Text], padding(Pad - Left)}.
 
-format_default(Term) when is_binary(Term); is_list(Term) ->
+padding(Width) -> lists:duplicate(Width, $\s).
+
+format_default(Term) when is_binary(Term) ->
     Term;
+format_default(Term) when is_list(Term) ->
+    case io_lib:printable_list(Term) of
+        true -> Term;
+        false -> io_lib:format("~p", [Term])
+    end;
 format_default(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
 format_default(Term) ->
