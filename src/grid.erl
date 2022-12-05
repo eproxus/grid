@@ -1,3 +1,4 @@
+% @doc Formatting library for tabular data.
 -module(grid).
 
 % API
@@ -15,23 +16,87 @@
 %--- Records -------------------------------------------------------------------
 
 -record(cell, {
-    text :: integer() | binary(),
+    text :: iodata(),
     width :: non_neg_integer()
 }).
 
+%--- Types ---------------------------------------------------------------------
+
+-type format_fun() :: fun((term()) -> iodata() | cell()).
+% Function that takes a cell value and return its textual representation.
+% Either as printable IO-data or a {@type cell()}.
+-type format() :: uppercase | lowercase | titlecase | format_fun().
+% A format specification, either as a shortcut atom or a custom fun of type
+% {@type format_fun()}.
+-type header_opt() :: boolean() | format().
+% Enable headers by setting to `true' or supplying a specific format of type
+% {@type format()}. Setting it to `false' disables printing of headers.
+-type column() ::
+    pos_integer()
+    | atom()
+    | #{
+        index => pos_integer(),
+        key => atom(),
+        name => iodata(),
+        format => format()
+    }.
+% Column display specification. An integer `Integer' is equivalent to
+% `#{index => Integer}', an atom `Atom' is equivalent to `#{key => Atom}'.
+%
+% <ul>
+%   <li>`index' is which cell index should be rendered in this column</li>
+%   <li>`key' is which cell key should be rendered in this column</li>
+%   <li>`name' is the display name to use for the column header</li>
+%   <li>`format' is the format specification that will be applied to each
+%       cell</li>
+% </ul>
+-type columns() :: [column()].
+% Ordered list of columns to print.
+-type opts() :: #{
+    header => header_opt(),
+    spacer => iodata(),
+    columns => columns()
+}.
+% Options to customize printing.
+%
+% <ul>
+%   <li>`spacer' defaults to `"  "'</li>
+%   <li>`header' defaults to `false'</li>
+%   <li>`columns' defaults to to printing all columns as-is</li>
+% </ul>
+-opaque cell() :: #cell{}.
+% A cell containing text contents and its desired display width.
+
+-export_type([opts/0, cell/0]).
+
 %--- API -----------------------------------------------------------------------
 
+% @equiv format(Items, #{})
 format(Items) -> format(Items, #{}).
 
-format(Items, Opts) ->
+% @doc Format a list of items as a table.
+%
+% Returns a nested IO-data that needs to be printed manually (e.g. with
+% `io:format(Result)').
+-spec format(Items :: list(term()), Opts :: opts()) -> iodata().
+format(Items, Opts) when is_list(Items), is_map(Opts) ->
     Columns = columns(Opts),
     {Rows, ProcessedColumns} = process(Items, Columns, opts(Opts)),
     render(Rows, ProcessedColumns, Opts).
 
+% @doc Returns a cell with the specified text contents and width.
+%
+% Should only be called from format functions.
+%
+% This function is useful when the text returned does not correspond to the
+% resulting visual width, e.g. when returning colored terminal text using
+% ANSI escape codes (that don't have a width when printed to the terminal).
+-spec cell(iodata(), non_neg_integer()) -> cell().
 cell(Text, Width) -> #cell{text = Text, width = Width}.
 
 %--- Internal ------------------------------------------------------------------
 
+-spec opts(opts()) -> map().
 opts(Opts) -> maps:map(fun opt/2, Opts).
 
 opt(header, true) ->
