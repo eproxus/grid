@@ -1,4 +1,3 @@
 #!/bin/sh
 
-rebar3 analyze
-rebar3 fmt --check
+rebar3 do xref, dialyzer, eunit, fmt --check
