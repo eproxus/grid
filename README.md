@@ -1,3 +1,7 @@
+[![GitHub Actions](https://img.shields.io/github/workflow/status/eproxus/grid/Continuous%20Integration?style=flat-square)](https://github.com/eproxus/grid/actions/workflows/continous_integration.yaml)
+[![Hex.pm Version](https://img.shields.io/hexpm/v/grid.svg?style=flat-square)](https://hex.pm/packages/grid)
+[![Hex.pm License](https://img.shields.io/hexpm/l/meck.svg?style=flat-square)](https://hexdocs.pm/grid/license.html)
+
 # grid
 
 Erlang formatting library for tabular data.
