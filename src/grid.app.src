@@ -10,7 +10,7 @@
     {env, []},
     {modules, []},
 
-    {licenses, ["Apache-2.0"]},
+    {licenses, ["MIT"]},
     {links, [
         {"GitHub", "https://github.com/eproxus/grid"},
         {"Changelog", "https://github.com/eproxus/grid/blob/main/CHANGELOG.md"}
