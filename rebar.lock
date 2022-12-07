@@ -1,1 +1,8 @@
-[].
+{"1.2.0",
+[{<<"textual">>,{pkg,<<"textual">>,<<"0.1.0">>},0}]}.
+[
+{pkg_hash,[
+ {<<"textual">>, <<"66F06DD7CCB6368C7A9E6BF553B1AB724680890D54F0076CA68A819D3F2F9C8B">>}]},
+{pkg_hash_ext,[
+ {<<"textual">>, <<"3D4218EC143BD667EAB29318B2223B5821B0F4D8646B2C850BDE2FE9A451BEFA">>}]}
+].
