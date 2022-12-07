@@ -373,7 +373,7 @@ header_format_only_test_() ->
     end,
     {inparallel, [
         Test(foo_bar, "FOO BAR", uppercase),
-        Test(foo_bar, "Foo bar", titlecase),
+        Test(foo_The_bar, "Foo the Bar", titlecase),
         Test('FOO_BAR', "foo bar", lowercase),
         Test('FOO_BAR', "RAB_OOF", fun(Value) ->
             string:reverse(atom_to_binary(Value))

@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2022-01-01
+## [0.2.1] - 2022-12-07
+
+### Changed
+
+- `titlecase` is now uses proper title capitalization (APA style)
+
+## [0.2.0] - 2022-12-05
 
 ### Added
 
@@ -22,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial version.
 
-[unreleased]: https://github.com/eproxus/grid/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/eproxus/grid/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/eproxus/grid/compare/v0.2.0..v0.2.1
 [0.2.0]: https://github.com/eproxus/grid/compare/v0.1.0..v0.2.0
 [0.1.0]: https://github.com/eproxus/grid/releases/tag/v0.1.0

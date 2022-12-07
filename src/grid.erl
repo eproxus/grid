@@ -353,7 +353,7 @@ spacer(_Opts) -> <<"  ">>.
 format_fun(uppercase) ->
     fun(Value) -> string:uppercase(words(format_default(Value))) end;
 format_fun(titlecase) ->
-    fun(Value) -> string:titlecase(words(format_default(Value))) end;
+    fun(Value) -> textual:titlecase(words(format_default(Value))) end;
 format_fun(lowercase) ->
     fun(Value) -> string:lowercase(words(format_default(Value))) end;
 format_fun(Fun) when is_function(Fun, 1) ->
