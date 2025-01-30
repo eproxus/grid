@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Full changelog**: https://github.com/eproxus/grid/compare/v0.2.1...HEAD
 
+### Added
+
+- Official support for Erlang 26 and 27
+
+### Breaking
+
+- Official support for Erlang 24 has been dropped
+
 ## 0.2.1 - 2022-12-07
 
 ### Changed
