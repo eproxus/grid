@@ -1,8 +1,4 @@
-[![GitHub Actions](https://img.shields.io/github/workflow/status/eproxus/grid/Continuous%20Integration?style=flat-square)](https://github.com/eproxus/grid/actions/workflows/continous_integration.yaml)
-[![Hex.pm Version](https://img.shields.io/hexpm/v/grid.svg?style=flat-square)](https://hex.pm/packages/grid)
-[![Hex.pm License](https://img.shields.io/hexpm/l/meck.svg?style=flat-square)](https://hexdocs.pm/grid/license.html)
-
-# grid
+# grid [![CI Status][ci-img]][ci] [![Hex.pm Version][hex-img]][hex] [![Minimum Erlang Version][erlang-img]][erlang] [![License][license-img]][license]
 
 Erlang formatting library for tabular data.
 
@@ -99,3 +95,13 @@ false       false                   none  #Ref<0.2124221214.1451884548.78107>  2
 2  foo   c
 3  quux
 ```
+
+
+[ci]:          https://github.com/eproxus/grid/actions/workflows/continous_integration.yaml?query=branch%3Amain
+[ci-img]:      https://img.shields.io/github/actions/workflow/status/eproxus/grid/continous_integration.yaml?label=ci
+[hex]:         https://hex.pm/packages/grid
+[hex-img]:     https://img.shields.io/hexpm/v/grid
+[license]:     LICENSE.md
+[license-img]: https://img.shields.io/hexpm/l/grid
+[erlang]:      https://github.com/eproxus/grid/blob/main/.github/workflows/continous_integration.yaml#L12
+[erlang-img]:  https://img.shields.io/badge/erlang-25+-blue.svg
