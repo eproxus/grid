@@ -9,6 +9,9 @@
 -export([cell/2]).
 -ignore_xref({cell, 2}).
 
+-export([parse_style/1]).
+-export([style/1]).
+
 %--- Macros --------------------------------------------------------------------
 
 -define(COLUMN_DEFAULT, #{align => left, format => fun format_default/1}).
@@ -79,10 +82,11 @@ format(Items) -> format(Items, #{}).
 % Returns a nested IO-data that needs to be printed manually (e.g. with
 % `io:format(Result)').
 -spec format(Items :: list(term()), Opts :: opts()) -> iodata().
-format(Items, Opts) when is_list(Items), is_map(Opts) ->
+format(Items, UserOpts) when is_list(Items), is_map(UserOpts) ->
+    Opts = opts(UserOpts),
     Columns = columns(Opts),
-    {Rows, ProcessedColumns} = process(Items, Columns, opts(Opts)),
-    render(Rows, ProcessedColumns, Opts).
+    {Headers, Rows, ProcessedColumns} = process(Items, Columns, Opts),
+    render(Headers, Rows, ProcessedColumns, Opts).
 
 % @doc Returns a cell with the specified text contents and width.
 %
@@ -97,7 +101,9 @@ cell(Text, Width) -> #cell{text = Text, width = Width}.
 %--- Internal ------------------------------------------------------------------
 
 -spec opts(opts()) -> map().
-opts(Opts) -> maps:map(fun opt/2, Opts).
+opts(Opts) ->
+    Default = #{style => default},
+    maps:map(fun opt/2, maps:merge(Default, Opts)).
 
 opt(header, true) ->
     #{format => fun format_default/1};
@@ -107,6 +113,8 @@ opt(header, Format) ->
     #{format => format_fun(Format)};
 opt(columns, []) ->
     error(empty_columns);
+opt(style, Style) ->
+    style(Style);
 opt(_K, V) ->
     V.
 
@@ -132,8 +140,8 @@ process(Rows, Columns, Opts) ->
     {ProcessedRows, NewColumns} = lists:mapfoldl(
         fun process_row/2, Columns, Rows
     ),
-    {Header, AllColumns} = process_headers(NewColumns, Opts),
-    {Header ++ ProcessedRows, AllColumns}.
+    {Headers, AllColumns} = process_headers(NewColumns, Opts),
+    {Headers, ProcessedRows, AllColumns}.
 
 process_headers(#{specs := Specs} = Columns, #{header := Header}) ->
     {Item, NewColumns} = maps:fold(
@@ -291,37 +299,98 @@ find_spec_by_key(Key, {_Index, _Spec, Iter}) ->
 find_spec_by_key(_Key, none) ->
     error.
 
-render(Rows, #{specs := Specs}, Opts) ->
+render(Headers, Rows, #{specs := Specs}, Opts) ->
     Sorted = [Spec || {_, Spec} <- lists:sort(maps:to_list(Specs))],
-    render_rows(Rows, Sorted, Opts).
+    render_table(Headers, Rows, Sorted, Opts).
 
-render_rows([Row], Specs, Opts) ->
-    [render_row(Row, Specs, Opts), $\n];
-render_rows([Row | Rows], Specs, Opts) ->
-    [render_row(Row, Specs, Opts), $\n | render_rows(Rows, Specs, Opts)];
-render_rows([], _Columns, _Opts) ->
-    [$\n].
+render_table([], Rows, Specs, Opts) ->
+    [
+        render_border(Specs, delimiters(body_top, Opts), Opts),
+        render_rows(Rows, Specs, row_delimiters(Opts), Opts)
+    ];
+render_table(Headers, Rows, Specs, Opts) ->
+    [
+        render_headers(Headers, Rows, Specs, header_delimiters(Opts), Opts),
+        render_rows(Rows, Specs, row_delimiters(Opts), Opts)
+    ].
 
-render_row(Row, Specs, Opts) -> render_row(Row, Specs, [], Opts).
+header_delimiters(#{style := #{hrl := HRL, hrc := HRC, hrr := HRR}}) ->
+    {HRL, HRC, HRR}.
 
-render_row(_Row, [], _Pad, _Opts) ->
+row_delimiters(#{style := #{brl := BRL, brc := BRC, brr := BRR}}) ->
+    {BRL, BRC, BRR}.
+
+render_headers([Header], Rows, Specs, Delims, Opts) ->
+    [
+        render_border(Specs, delimiters(header_top, Opts), Opts),
+        render_row(Header, Specs, Delims, Opts),
+        $\n,
+        case Rows of
+            [] -> render_border(Specs, delimiters(header_bottom, Opts), Opts);
+            _ -> render_border(Specs, delimiters(header_separator, Opts), Opts)
+        end
+    ].
+
+delimiters(header_top, #{style := #{htl := HTL, hth := HTH, htc := HTC, htr := HTR}}) ->
+    {HTL, HTH, HTC, HTR};
+delimiters(header_bottom, #{style := #{hbl := HBL, hbh := HBH, hbc := HBC, hbr := HBR}}) ->
+    {HBL, HBH, HBC, HBR};
+delimiters(header_separator, #{style := #{hsl := HSL, hsh := HSH, hsc := HSC, hsr := HSR}}) ->
+    {HSL, HSH, HSC, HSR};
+delimiters(body_top, #{style := #{btl := BTL, bth := BTH, btc := BTC, btr := BTR}}) ->
+    {BTL, BTH, BTC, BTR};
+delimiters(body_bottom, #{style := #{bbl := BBL, bbh := BBH, bbc := BBC, bbr := BBR}}) ->
+    {BBL, BBH, BBC, BBR};
+delimiters(body_divider, #{style := #{bdl := BDL, bdh := BDH, bdc := BDC, bdr := BDR}}) ->
+    {BDL, BDH, BDC, BDR}.
+
+render_border(_Specs, {[], [], [], []}, _Opts) ->
     [];
-render_row(Row, [#{width := CWidth} = Spec | Specs], Pad, Opts) ->
-    case get_cell(Row, Spec) of
-        error ->
-            render_row(Row, Specs, [padding(CWidth), spacer(Opts) | Pad], Opts);
-        {ok, '_'} ->
-            render_row(Row, Specs, [padding(CWidth), spacer(Opts) | Pad], Opts);
-        {ok, Cell} ->
-            {Text, Post} = align(Cell, Spec),
-            [Pad, Text, render_row(Row, Specs, [Post, spacer(Opts)], Opts)]
-    end.
+render_border(Specs, {L, S, M, R}, Opts) ->
+    Row = list_to_tuple([{cell, lists:duplicate(W, S), W} || #{width := W} <- Specs]),
+    [render_row(Row, Specs, {L, M, R}, Opts), $\n].
+
+render_rows([], _Specs, _Delims, _Opts) ->
+    [];
+render_rows([Row], Specs, Delims, Opts) ->
+    [
+        render_row(Row, Specs, Delims, Opts),
+        $\n,
+        render_border(Specs, delimiters(body_bottom, Opts), Opts)
+    ];
+render_rows([Row | Rows], Specs, Delims, Opts) ->
+    [
+        render_row(Row, Specs, Delims, Opts),
+        $\n,
+        render_border(Specs, delimiters(body_divider, Opts), Opts)
+        | render_rows(Rows, Specs, Delims, Opts)
+    ].
+
+render_row(Row, Specs, {Left, _, _} = Delims, Opts) ->
+    [Left, render_row(Row, Specs, Delims, [], Opts)].
+
+render_row(_Row, [], {_, _, []}, _Pad, _Opts) ->
+    [];
+render_row(Row, [Spec], {_, _, []}, Pad, _Opts) ->
+    Cell = get_cell(Row, Spec),
+    {Text, _Post} = align(Cell, Spec),
+    [Pad, Text];
+render_row(Row, [Spec], {_, _, Right}, Pad, _Opts) ->
+    Cell = get_cell(Row, Spec),
+    {Text, Post} = align(Cell, Spec),
+    [Pad, Text, Post, Right];
+render_row(Row, [#{width := _CWidth} = Spec | Specs], {_, Middle, _} = Delims, Pad, Opts) ->
+    Cell = get_cell(Row, Spec),
+    {Text, Post} = align(Cell, Spec),
+    [Pad, Text, render_row(Row, Specs, Delims, [Post, Middle], Opts)].
 
 get_cell(Row, #{index := Index}) ->
-    try
-        {ok, element(Index, Row)}
+    Empty = #cell{text = "", width = 0},
+    try element(Index, Row) of
+        '_' -> Empty;
+        Text -> Text
     catch
-        error:badarg -> error
+        error:badarg -> Empty
     end.
 
 align(#cell{text = Text, width = Width}, #{width := CWidth, align := left}) ->
@@ -347,8 +416,10 @@ format_default(Term) when is_atom(Term) ->
 format_default(Term) ->
     io_lib:format("~p", [Term]).
 
-spacer(#{spacer := Spacer}) -> Spacer;
-spacer(_Opts) -> <<"  ">>.
+% FIXME: Retain support for old `spacer` option?
+% spacer(#{style := #{brc := Spacer}}) -> Spacer;
+% spacer(#{spacer := Spacer}) -> Spacer;
+% spacer(_Opts) -> <<"  ">>.
 
 format_fun(uppercase) ->
     fun(Value) -> string:uppercase(words(format_default(Value))) end;
@@ -362,3 +433,197 @@ format_fun(Format) ->
     error({invalid_format, Format}).
 
 words(Binary) -> string:replace(Binary, <<"_">>, <<" ">>, all).
+
+% Format:
+% ```
+%   1234
+% 1 ┏━┳┓ header top
+% 2 ┣━╋┫ header divider
+% 3 ┃ ┃┃ header row
+% 4 ┗━┻┛ header bottom
+% 5 ┡━╇┩ header body divider
+% 6 ┌─┬┐ body top
+% 7 ├─┼┤ body divider
+% 8 │ ││ body row
+% 9 └─┴┘ body bottom
+% ```
+% * Rows 6-9 can be ommitted to use the same style for header and body.
+% * Additionally, row 5 can be ommitted to use the same divider style for both.
+% * Optionally columns 1 and 4 can be ommitted for a borderless style.
+%
+% Header characters:
+% ```
+% ┏(htl) ━(hth) ┳(htc) ┓(htr)    // header top left/horizontal/cross/right
+% ┣(hdl) ━(hdh) ╋(hdc) ┫(hdr)    // header divider left/horizontal/cross/right
+% ┃(hrl) space  ┃(hrc) ┃(hrr)    // header row left/space/cross/right
+% ┗(hbl) ━(hbh) ┻(hbc) ┛(hbr)    // header bottom left/horizontal/cross/right
+% ┡(hsl) ━(hsh) ╇(hsc) ┩(hsr)    // header-body separator left/horizontal/cross/right
+% ```
+%
+% Body characters:
+% ```
+% ┌(btl) ─(bth) ┬(btc) ┐(btr)    // body top left/horizontal/cross/right
+% ├(bdl) ─(bdh) ┼(bdc) ┤(bdr)    // body divider left/horizontal/cross/right
+% │(brl) space  │(brc) │(brr)    // body row left/space/cross/right
+% └(bbl) ─(bbh) ┴(bbc) ┘(bbr)    // body bottom left/horizontal/cross/right
+% ```
+% erlfmt-ignore
+parse_style(Def) ->
+    Empty = {[], [], [], []},
+    Rows = string:split(Def, <<"\n">>, all),
+    Sections = case [parse_style_row(string:to_graphemes(R)) || R <- Rows] of
+        % Bordered / Unique header, separator and body styles (9x4)
+        [HT, HD, HR, HB, HS, BT, BD, BR, BB] ->
+            [HT, HD, HR, HB, HS, BT, BD, BR, BB];
+        % Bordered / Same style for header and body, with border (5x4)
+        [HT, HD, HR, HB, HS] ->
+            [HT, HD, HR, HB, HS, HT, HD, HR, HB];
+        % Bordered / Same style for header, body and separator (4x4)
+        [HT, HD, HR, HB] ->
+            [HT, HD, HR, HB, HD, HT, HD, HR, HB];
+        % Borderless / Unique header, separator and body styles (6x2)
+        [{"", _, _, ""} = HD, HR, HS, BD, BR] ->
+            [Empty, HD, HR, Empty, HS, Empty, BD, BR, Empty];
+        % Borderless / Same style for header, body and separator (2x2)
+        [{"", _, _, ""} = HD, HR] ->
+            [Empty, HD, HR, Empty, HD, Empty, HD, HR, Empty]
+    end,
+    [
+        {HTL, HTH, HTC, HTR},
+        {HDL, HDH, HDC, HDR},
+        {HRL, _,   HRC, HRR},
+        {HBL, HBH, HBC, HBR},
+        {HSL, HSH, HSC, HSR},
+        {BTL, BTH, BTC, BTR},
+        {BDL, BDH, BDC, BDR},
+        {BRL, _,   BRC, BRR},
+        {BBL, BBH, BBC, BBR}
+    ] = Sections,
+    #{
+        htl => HTL, hth => HTH, htc => HTC, htr => HTR,
+        hdl => HDL, hdh => HDH, hdc => HDC, hdr => HDR,
+        hrl => HRL, hrc => HRC, hrr => HRR,
+        hbl => HBL, hbh => HBH, hbc => HBC, hbr => HBR,
+        hsl => HSL, hsh => HSH, hsc => HSC, hsr => HSR,
+        btl => BTL, bth => BTH, btc => BTC, btr => BTR,
+        bdl => BDL, bdh => BDH, bdc => BDC, bdr => BDR,
+        brl => BRL, brc => BRC, brr => BRR,
+        bbl => BBL, bbh => BBH, bbc => BBC, bbr => BBR
+    }.
+
+parse_style_row([A, B, C, D]) -> {A, B, C, D};
+parse_style_row([B, C]) -> {"", B, C, ""}.
+
+% erlfmt-ignore
+style(default) ->
+    #{bbl => [],   htc => [],   bth => [],   hbh => [],   hsc => [],
+      hdl => [],   hth => [],   bbh => [],   btc => [],   btr => [],
+      brc => "  ", hsr => [],   bdr => [],   htr => [],   bdh => [],
+      hbl => [],   hbc => [],   bbc => [],   bdc => [],   hbr => [],
+      brl => [],   hdr => [],   htl => [],   hrr => [],   hrc => "  ",
+      brr => [],   bbr => [],   hdc => [],   hrl => [],   hsh => [],
+      hsl => [],   hdh => [],   bdl => [],   btl => []};
+style(simple) ->
+    % rp(grid:parse_style(~"""
+    % ┌─┬┐
+    % ├─┼┤
+    % │ ││
+    % └─┴┘
+    % """)).
+    #{bbl => 9492, htc => 9516, bth => 9472, hbh => 9472, hsc => 9532,
+      hdl => 9500, hth => 9472, bbh => 9472, btc => 9516, btr => 9488,
+      brc => 9474, hsr => 9508, bdr => 9508, htr => 9488, bdh => 9472,
+      hbl => 9492, hbc => 9524, bbc => 9524, bdc => 9532, hbr => 9496,
+      brl => 9474, hdr => 9508, htl => 9484, hrr => 9474, hrc => 9474,
+      brr => 9474, bbr => 9496, hdc => 9532, hrl => 9474, hsh => 9472,
+      hsl => 9500, hdh => 9472, bdl => 9500, btl => 9484};
+style(borderless) ->
+    % FIXME: Buggy, ╇ get's used as brc when it should be │
+    % rp(grid:parse_style(~"""
+    % ━╋
+    %  ┃
+    % ━╇
+    % ─┼
+    %  │
+    % """)).
+    #{bbl => [],   htc => 9547, bth => 9473, hbh => 9472, hsc => 9474,
+      hdl => [],   hth => 9473, bbh => 9472, btc => 9547, btr => [],
+      brc => 9543, hsr => [],   bdr => [],   htr => [],   bdh => 32,
+      hbl => [],   hbc => 9532, bbc => 9532, bdc => 9475, hbr => [],
+      brl => [],   hdr => [],   htl => [],   hrr => [],   hrc => 9543,
+      brr => [],   bbr => [],   hdc => 9475, hrl => [],   hsh => 32,
+      hsl => [],   hdh => 32,   bdl => [],   btl => []};
+style(simple_borderless) ->
+    % rp(grid:parse_style(~"""
+    % ─┼
+    %  │
+    % """)).
+    #{bbl => [],   htc => [],   bth => [],   hbh => [],   hsc => 9532,
+      hdl => [],   hth => [],   bbh => [],   btc => [],   btr => [],
+      brc => 9474, hsr => [],   bdr => [],   htr => [],   bdh => 9472,
+      hbl => [],   hbc => [],   bbc => [],   bdc => 9532, hbr => [],
+      brl => [],   hdr => [],   htl => [],   hrr => [],   hrc => 9474,
+      brr => [],   bbr => [],   hdc => 9532, hrl => [],   hsh => 9472,
+      hsl => [],   hdh => 9472, bdl => [],   btl => []};
+style(square) ->
+    % FIXME: Buggy, doesn't use header row styles
+    % rp(grid:parse_style(~"""
+    % ┏━┳┓
+    % ┣━╋┫
+    % ┃ ┃┃
+    % ┗━┻┛
+    % ┡━╇┩
+    % ┌─┬┐
+    % ├─┼┤
+    % │ ││
+    % └─┴┘
+    % """));
+    #{bbl => 9492, htc => 9523, bth => 9472, hbh => 9473, hsc => 9543,
+      hdl => 9507, hth => 9473, bbh => 9472, btc => 9516, btr => 9488,
+      brc => 9474, hsr => 9513, bdr => 9508, htr => 9491, bdh => 9472,
+      hbl => 9495, hbc => 9531, bbc => 9524, bdc => 9532, hbr => 9499,
+      brl => 9474, hdr => 9515, htl => 9487, hrr => 9475, hrc => 9475,
+      brr => 9474, bbr => 9496, hdc => 9547, hrl => 9475, hsh => 9473,
+      hsl => 9505, hdh => 9473, bdl => 9500, btl => 9484};
+style(rounded) ->
+    % rp(grid:parse_style(~"""
+    % ╭─┬╮
+    % ├╌┼┤
+    % │ ││
+    % ╰─┴╯
+    % ╞═╪╡
+    % """));
+    #{brr => 9474,bth => 9472,htr => 9582,hsh => 9552,brc => 9474,
+      bbh => 9472,hbc => 9524,bdh => 9548,hrl => 9474,hsl => 9566,
+      brl => 9474,btc => 9516,bdc => 9532,htc => 9516,hdr => 9508,
+      bbr => 9583,hbr => 9583,hsc => 9578,btr => 9582,bbc => 9524,
+      hdh => 9548,btl => 9581,hrr => 9474,bdr => 9508,htl => 9581,
+      hsr => 9569,hdc => 9532,bdl => 9500,bbl => 9584,hbl => 9584,
+      hrc => 9474,hth => 9472,hbh => 9472,hdl => 9500};
+style(ascii) ->
+    % rp(grid:parse_style(~"""
+    % +-++
+    % +-++
+    % | ||
+    % +-++
+    % """));
+    #{bbl => 43,htc => 43,bth => 45,hbh => 45,hsc => 43,hdl => 43,
+      hth => 45,bbh => 45,btc => 43,btr => 43,brc => 124,
+      hsr => 43,bdr => 43,htr => 43,bdh => 45,hbl => 43,hbc => 43,
+      bbc => 43,bdc => 43,hbr => 43,brl => 124,hdr => 43,
+      htl => 43,hrr => 124,hrc => 124,brr => 124,bbr => 43,
+      hdc => 43,hrl => 124,hsh => 45,hsl => 43,hdh => 45,
+      bdl => 43,btl => 43};
+style(ascii_borderless) ->
+    % rp(grid:parse_style(~"""
+    % -+
+    %  |
+    % """));
+    #{bbl => [],htc => [],bth => [],hbh => [],hsc => 43,hdl => [],
+      hth => [],bbh => [],btc => [],btr => [],brc => 124,
+      hsr => [],bdr => [],htr => [],bdh => 45,hbl => [],hbc => [],
+      bbc => [],bdc => 43,hbr => [],brl => [],hdr => [],htl => [],
+      hrr => [],hrc => 124,brr => [],bbr => [],hdc => 43,
+      hrl => [],hsh => 45,hsl => [],hdh => 45,bdl => [],btl => []};
+style(Style) ->
+    error({invalid_style, Style}).

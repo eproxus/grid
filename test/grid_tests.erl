@@ -415,6 +415,18 @@ format_terms_test() ->
         ]
     ).
 
+style_test() ->
+    ?equal(
+        [
+            "foo    [bar]",
+            "{baz}  #{test => term}"
+        ],
+        [
+            {foo, [bar]},
+            {{baz}, #{test => term}}
+        ]
+    ).
+
 %--- Internal ------------------------------------------------------------------
 
 rows(IOList) -> string:lexemes(binary_to_list(iolist_to_binary(IOList)), [$\n]).
